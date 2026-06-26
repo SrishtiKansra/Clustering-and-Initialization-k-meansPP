@@ -3,7 +3,10 @@
 % ── Packages ────────────────────────────────────────────────────────────────
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage{lmodern}
+\IfFileExists{lmodern.sty}{\usepackage{lmodern}}{}
+% Use lmodern if available; otherwise disable microtype font expansion,
+% which requires a scalable font (Type1) to be present.
+\IfFileExists{lmodern.sty}{\usepackage{microtype}}{\usepackage[expansion=false]{microtype}}
 \usepackage[a4paper, top=2.5cm, bottom=2.5cm, left=2.3cm, right=2.3cm]{geometry}
 \usepackage{amsmath,amssymb,amsthm}
 \usepackage{graphicx}
@@ -14,7 +17,6 @@
 \usepackage{listings}
 \usepackage{caption}
 \usepackage{subcaption}
-\usepackage{microtype}
 \usepackage{enumitem}
 \usepackage{fancyhdr}
 \usepackage{titlesec}
@@ -164,8 +166,12 @@ $O(I \cdot n \cdot k \cdot d)$ total cost. Its key guarantee is:
   $\EE[\phi_0]\leq 8(\ln k+2)\cdot\phi^*$,
   where $\phi^*$ is the optimal inertia and $\phi_0$ is the initialization cost.
 \end{theorem}
-This \emph{O$(\log k)$-competitive} bound predicts that the advantage of $k$-means++
-grows with $k$ — verified empirically in Section~\ref{sec:exp3}.
+This \emph{O$(\log k)$-competitive} bound concerns the quality of the seeding relative
+to the optimum $\phi^*$; the approximation factor it guarantees loosens as $k$ grows.
+It does not directly predict the empirical gap over random initialization, but it
+motivates a related expectation we test in Section~\ref{sec:exp3}: with more clusters,
+random init has more opportunities to seed two centers in one true cluster, so the gap
+between the two methods should tend to widen with $k$.
 
 \subsection{From-scratch implementation}
 
@@ -181,7 +187,8 @@ def kmeans(X, k, init='random', random_state=None, max_iter=300, tol=1e-4):
         if np.max(np.linalg.norm(new_centers - centers, axis=1)) < tol:
             break
         centers = new_centers
-    return centers, assign_labels(X, centers), compute_inertia(X, labels, centers), i
+    labels  = assign_labels(X, centers)               # final labels from final centers
+    return centers, labels, compute_inertia(X, labels, centers), i
 \end{lstlisting}
 
 The \texttt{INITIALIZERS} registry maps \texttt{'random'} to Forgy sampling and
@@ -245,11 +252,11 @@ $k$-means++ & 439.4 & 331.8 & 75.5\% & 88\% & 0.966 & 3.10 \\
   \label{fig:exp1_inertia}
 \end{figure}
 
-$k$-means++ dominates on every axis. It reduces mean inertia by \textbf{60.4\%}
+$k$-means++ outperforms random initialization on every axis. It reduces mean inertia by \textbf{60.4\%}
 (439 vs 1109), raises ARI from 0.833 to \textbf{0.966} and NMI from 0.919 to 0.984,
 and converges in \textbf{3.1 iterations} vs 5.6 — roughly half as many Lloyd steps.
-The near-optimal fraction rises from 42\% to \textbf{88\%}: random init fails to find a
-near-optimal solution in more than half of runs.
+The near-optimal fraction rises from 42\% to \textbf{88\%}: random init reaches a
+near-optimal solution in fewer than half of its runs.
 
 \begin{figure}[H]
   \centering
@@ -262,8 +269,9 @@ near-optimal solution in more than half of runs.
 
 Figure~\ref{fig:exp1_scatter} shows the failure mechanism directly. In the worst random
 run two seeds landed in the same cluster, splitting it while merging two adjacent ones.
-Lloyd's updates cannot undo this — once centers are placed, every assignment step is
-optimal \emph{given} those centers, locking in the sub-optimal partition. $k$-means++
+Lloyd's updates often cannot recover from this — once centers are placed, every assignment step is
+optimal \emph{given} those centers, and in this configuration no single reassignment splits the
+merged cluster, so the run stays trapped in the sub-optimal partition. $k$-means++
 avoids this by placing one seed in each cluster via the $D^2$ rule.
 
 \begin{figure}[H]
@@ -329,13 +337,16 @@ inferior performance.
   \includegraphics[width=\linewidth]{figures/exp3_vs_k.pdf}
   \caption{Left: mean inertia vs $k$. Right: random/$k$-means++ inertia ratio vs $k$.
            The ratio grows monotonically from 1.01 at $k=2$ to 1.82 at $k=15$,
-           tracking $\ln k$, directionally consistent with the O$(\log k)$ theory.}
+           qualitatively consistent with the O$(\log k)$ guarantee that random init has
+           more chances to mis-seed as $k$ grows.}
   \label{fig:exp3}
 \end{figure}
 
 \begin{table}[H]
 \centering\small
-\caption{Inertia ratio vs $k$: $\bar{J}_\text{rand}/\bar{J}_{++}$ grows with $\ln k$.}
+\caption{Inertia ratio vs $k$: $\bar{J}_\text{rand}/\bar{J}_{++}$ increases with $k$.
+The $\ln k$ column is shown for reference only; the ratio is a distinct quantity from
+the theoretical $\ln k$ factor and is not expected to match it numerically.}
 \label{tab:exp3}
 \begin{tabular}{ccccc}
 \toprule
@@ -352,11 +363,13 @@ $k$ & $\bar{J}_\text{rand}$ & $\bar{J}_{++}$ & \textbf{Ratio} & $\ln k$ \\
 \end{table}
 
 The advantage of $k$-means++ grows \textbf{monotonically} from 1.012 at $k=2$ to
-\textbf{1.815} at $k=15$, tracking $\ln k$ closely (Table~\ref{tab:exp3}).
-For small $k$ (2--5) the advantage is negligible: with few clusters, random init rarely
-seeds two centers in the same cluster. At $k=7$ the ratio jumps to 1.22 as seeding
-errors become frequent. This is directionally consistent with the O$(\log k)$ competitive bound:
-more clusters give random init more opportunities to fail, widening the gap.
+\textbf{1.815} at $k=15$ (Table~\ref{tab:exp3}). For small $k$ (2--5) the advantage is
+negligible: with few clusters, random init rarely seeds two centers in the same cluster.
+At $k=7$ the ratio jumps to 1.22 as seeding errors become frequent. The trend is
+qualitatively consistent with the O$(\log k)$ competitive bound — more clusters give
+random init more opportunities to mis-seed, widening the gap — though the inter-method
+ratio is a different quantity from the bound's $\ln k$ factor and we make no claim that
+the two match numerically.
 
 \subsection{Experiment 4: Real-world high-dimensional data (Digits)}
 \label{sec:exp4}
@@ -380,23 +393,34 @@ $k$-means++ & 71{,}381 & 959 & 1.34\% & 16\% & 0.464          & 25.12 \\
   \centering
   \includegraphics[width=\linewidth]{figures/exp4_digits.pdf}
   \caption{Digits 64-D: nearly identical, very tight inertia distributions (CV
-           $\approx1.3\%$ for both). The objective landscape is effectively unimodal.}
+           $\approx1.3\%$ for both), suggesting a much smoother objective landscape than
+           in Experiment 1.}
   \label{fig:exp4}
 \end{figure}
 
 The result \textbf{inverts}. $k$-means++ is marginally \emph{worse}: inertia $+1.3\%$,
-ARI 0.464 vs \textbf{0.512}, NMI 0.618 vs \textbf{0.656}. Three mechanisms contribute:
+ARI 0.464 vs \textbf{0.512}, NMI 0.618 vs \textbf{0.656}. We did not isolate a single
+cause experimentally, but several mechanisms are consistent with this behaviour:
 
 \begin{enumerate}[nosep,leftmargin=*]
-  \item \textbf{Distance concentration.} In 64 dimensions, all pairwise distances become
-        similar ($\max/\min\to1$), flattening the $D^2$ distribution so $k$-means++
-        sampling is nearly uniform — its seeding signal vanishes.
-  \item \textbf{Landscape unimodality.} CV $\approx1.3\%$ for \emph{both} methods —
-        50$\times$ lower than Experiment 1. The landscape has effectively one basin;
-        initialization choice is irrelevant for final inertia.
-  \item \textbf{Greedy spreading on outliers.} $k$-means++ actively maximizes spread,
-        which can anchor seeds on atypical digit images. Such outlier seeds attract few
+  \item \textbf{Distance concentration.} In 64 dimensions pairwise distances tend to
+        concentrate ($\max/\min\to1$), which would flatten the $D^2$ distribution and
+        make $k$-means++ sampling closer to uniform, weakening the seeding signal. This
+        is a plausible contributing factor rather than one we measure directly here.
+  \item \textbf{Smoother landscape.} CV $\approx1.3\%$ for \emph{both} methods —
+        roughly 50$\times$ lower than Experiment 1. This low restart-to-restart spread
+        suggests a substantially less multimodal landscape, in which the starting point
+        matters little for final inertia; we infer this from the variability, not from a
+        direct characterization of the basins.
+  \item \textbf{Greedy spreading on outliers.} $k$-means++ maximizes spread, which may
+        anchor seeds on atypical digit images. Such outlier seeds could attract few
         points, producing unbalanced clusters that score worse on ARI/NMI.
+  \item \textbf{Standardization.} We standardize all 64 features; several are
+        near-constant edge pixels whose variance is dominated by noise. Standardization
+        inflates the influence of these low-signal dimensions on the Euclidean distance,
+        which may itself disadvantage the spread-maximizing $D^2$ seeding. Unlike the
+        first three, this is directly testable by re-running without standardization
+        (noted under Limitations).
 \end{enumerate}
 
 \textbf{Methodological lesson.} Inertia alone would suggest equivalence (both
@@ -449,13 +473,14 @@ Digits (64D, $k$=10) & 70493 & 71381
 \end{tabular}
 \end{table}
 
-The experiments tell a coherent, theory-consistent story.
+The experiments reveal a nuanced picture, consistent with both the theoretical
+guarantees of $k$-means++ and the conditions under which they stop being useful.
 
-\textbf{Finding 1 — Strong structure: $k$-means++ wins decisively.}
+\textbf{Finding 1 — Strong structure: $k$-means++ outperforms clearly.}
 A 60.4\% inertia reduction, ARI from 0.833 to 0.966, NMI from 0.919 to 0.984, half the
-iterations, and 88\% near-optimal rate vs 42\% for random init. The scatter plots confirm
-the mechanism: $D^2$ seeding prevents the pathological two-seeds-in-one-cluster
-initialization that Lloyd cannot recover from.
+iterations, and 88\% near-optimal rate vs 42\% for random init. The scatter plots
+illustrate the mechanism: $D^2$ seeding prevents the pathological two-seeds-in-one-cluster
+initialization that Lloyd often cannot recover from.
 
 \textbf{Finding 2 — Weak structure: stability and speed, not quality.}
 Both methods reach the same partition quality (ARI $\approx0.77$). $k$-means++ still
@@ -463,14 +488,17 @@ reduces CV by 36\% and cuts iterations from 11.3 to 9.4, which matters in any
 single-run or time-constrained setting.
 
 \textbf{Finding 3 — High dimensions: the advantage reverses.}
-On 64-D Digits, $k$-means++ is marginally worse on inertia, ARI, and NMI. Distance
-concentration eliminates the $D^2$ signal; the landscape becomes near-unimodal; and
-greedy spreading can misplace seeds on outlier images. This negative result is only
-visible through external metrics.
+On 64-D Digits, $k$-means++ is marginally worse on inertia, ARI, and NMI. Several factors
+are consistent with this: distance concentration likely weakens the $D^2$ signal, the
+landscape appears far less multimodal (very low CV), greedy spreading may misplace seeds
+on outlier images, and feature standardization may itself disadvantage spread-based seeding.
+This negative result is only visible through external metrics.
 
-\textbf{Finding 4 — Growing advantage with $k$, matching theory.}
-The inertia ratio grows from 1.01 at $k=2$ to 1.82 at $k=15$, tracking $\ln k$ and
-directionally consistent with the O$(\log k)$ competitiveness guarantee.
+\textbf{Finding 4 — Growing advantage with $k$.}
+The inertia ratio grows monotonically from 1.01 at $k=2$ to 1.82 at $k=15$, qualitatively
+consistent with the O$(\log k)$ guarantee: as $k$ grows, random init has more chances to
+mis-seed. The inter-method ratio is a distinct quantity from the bound's $\ln k$ factor and
+we make no claim that the two match numerically.
 
 \textbf{Visualization choices.} Box-and-strip plots expose the full inertia distribution
 (not just mean $\pm$ std), making bimodal outcomes visible. The scatter triptych (worst/typical/best)
@@ -482,16 +510,20 @@ avoid cherry-picking; bar charts include error bars for variability.
 % ════════════════════════════════════════════════════════════════════════════
 
 $k$-means++ is a strong default whose benefit is \emph{conditional} on strong,
-low-dimensional structure and large $k$, matching the O$(\log k)$ theory.
+low-dimensional structure and large $k$, broadly in line with the O$(\log k)$ theory.
 The key lesson is that initialization studies must pair inertia with external
 label-based metrics (ARI, NMI) and a stability measure; inertia alone conceals
 both the high-dimensional reversal and the overlapping null result.
 
 \textbf{Limitations.}
 (i)~Synthetic datasets are isotropic equal-sized Gaussians; real clusters are often non-spherical.
-(ii)~PCA pre-processing on Digits might reduce distance concentration and restore the advantage.
+(ii)~The Digits reversal is reported from standardized features; re-running on raw (unstandardized)
+features and with PCA would test whether standardization or distance concentration drives the effect,
+and is the most direct follow-up to the Section~5.4 discussion.
 (iii)~Convergence tolerance $10^{-4}$ may not fully converge on Digits; a tighter threshold
 would cost more iterations.
+(iv)~The Digits ARI gap (0.512 vs 0.464) is small relative to its run-to-run spread; we report
+it as a difference in mean external metrics rather than a statistically established effect.
 
 \textbf{Future directions.}
 Apply PCA before Digits clustering; compare with $k$-means$\|$ [4]

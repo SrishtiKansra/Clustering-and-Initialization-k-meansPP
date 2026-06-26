@@ -15,9 +15,9 @@ This project implements and compares two initialization strategies for the k-mea
 - **Random (Forgy)** — k centers drawn uniformly at random from the data
 - **k-means++** — centers seeded sequentially using D² weighting, placing each new center proportionally to its squared distance from the nearest existing center
 
-The two methods are identical in every other respect: same Lloyd's loop, same convergence criterion, same evaluation metrics, same random seeds. The only variable is initialization, making the comparison controlled and attributable.
+Both methods share the same Lloyd iterations, convergence criterion, evaluation metrics, stopping conditions, and random-seed schedule. The only variable is initialization, making the comparison controlled and attributable.
 
-The analysis spans four experiments across three datasets, measuring inertia, ARI, NMI, variability, and convergence speed — and finds that k-means++ is **not unconditionally better**: its advantage is conditional on cluster structure and dimensionality.
+The analysis spans four experiments across three datasets, measuring inertia, ARI, NMI, variability, and convergence speed — and demonstrates empirically that k-means++ is **not unconditionally better**: its advantage is conditional on cluster structure and dimensionality.
 
 ---
 
@@ -29,10 +29,10 @@ The analysis spans four experiments across three datasets, measuring inertia, AR
 | Overlapping (2D, k=5) | 2915 | 2931 | −0.5% | 0.780 | 0.768 |
 | Digits (64D, k=10) | 70,493 | 71,381 | +1.3% | **0.512** | 0.464 |
 
-- **Strong structure:** k-means++ wins on every axis — 60.4% lower inertia, ARI +0.13, half the Lloyd iterations, near-optimal rate 88% vs 42%.
+- **Strong structure:** k-means++ outperforms random init on every axis — 60.4% lower inertia, ARI +0.13, half the Lloyd iterations, near-optimal rate 88% vs 42%.
 - **Overlapping clusters:** Both methods tie on quality. k-means++ retains a stability benefit (CV 9.3% vs 14.5%) but no quality gain.
-- **High dimensions:** The advantage reverses. Distance concentration eliminates the D² signal; random init is marginally better on ARI and NMI. Visible only through external metrics — inertia alone suggests equivalence.
-- **Growing k:** The inertia ratio grows from 1.01 at k=2 to 1.82 at k=15, directionally consistent with the O(log k) theoretical bound.
+- **High dimensions:** The advantage reverses. Random init is marginally better on ARI and NMI; the result is consistent with distance concentration weakening the D² signal (plausible, not isolated here). Visible only through external metrics — inertia alone suggests equivalence.
+- **Growing k:** The inertia ratio grows monotonically from 1.01 at k=2 to 1.82 at k=15, qualitatively consistent with the O(log k) bound (the ratio is a distinct quantity from the ln k factor and is not expected to match it numerically).
 
 ---
 
